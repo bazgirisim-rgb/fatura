@@ -837,6 +837,7 @@ async function processQueue() {
         firma:   parsed.firma,
         tarih:   parsed.tarih,
         kdvO:    parsed.kdvO,
+        kdvTur:  parsed.kdvTur,
         mat:     parsed.mat,
         kdvT:    parsed.kdvT,
         top:     parsed.top,
@@ -1006,7 +1007,18 @@ function parseInvoice(raw) {
   const fisMatch = raw.match(/(?:fi[sş]\s*no|fatura\s*no|belge\s*no|f\.?\s*no)\s*[:\-#]?\s*([A-Z0-9\-]{3,20})/i);
   if (fisMatch) fisNo = fisMatch[1].trim();
 
-  return { firma, tarih, kdvO, mat, kdvT, top, vd, vergiNo, fisNo };
+  // KDV TÜR — "YİYECEK", "TEMİZLİK", "G" (Genel), "I" (İndirimli) vb.
+  let kdvTur = '';
+  const turMatch = raw.match(/(?:tur|tür|kdv\s*t[uü]r)[:\s]+([A-ZÇĞİÖŞÜa-zçğışöü\/\- ]{2,30})/i);
+  if (turMatch) {
+    kdvTur = turMatch[1].trim();
+  } else {
+    // Faturalarda KDV oranının solunda geçen kısa kategori kelimesi
+    const turInline = raw.match(/(YİYECEK|GIDA|TEMİZLİK|KIRTASİYE|GENEL|İNDİRİMLİ|TEKSTIL|TEKSTİL|HİZMET|AKARYAKIT|İLAÇ|KİTAP)/i);
+    if (turInline) kdvTur = turInline[1].trim();
+  }
+
+  return { firma, tarih, kdvO, kdvTur, mat, kdvT, top, vd, vergiNo, fisNo };
 }
 
 function parseTRNum(s) {
@@ -1118,6 +1130,10 @@ function makeRecordEl(rec, num) {
       <div class="field">
         <div class="field-label">Vergi No</div>
         <div class="field-val mono" contenteditable="true" onblur="saveField('${rec.id}','vergiNo',this)">${esc(rec.vergiNo || '')}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">KDV Türü</div>
+        <div class="field-val mono" contenteditable="true" onblur="saveField('${rec.id}','kdvTur',this)">${esc(rec.kdvTur || '')}</div>
       </div>
       <div class="field">
         <div class="field-label">KDV Oranı (%)</div>
@@ -1332,7 +1348,7 @@ function closeModal() {
 // EXPORT
 // ════════════════════════════════════════════════════
 function getExportRows() {
-  const header = ['#', 'Firma Adı', 'Fatura Tarihi', 'Fiş No', 'Vergi Dairesi', 'Vergi No', 'KDV Oranı (%)', 'Matrah (₺)', 'KDV Tutarı (₺)', 'Toplam (₺)', 'Sisteme Eklenme'];
+  const header = ['#', 'Firma Adı', 'Fatura Tarihi', 'Fiş No', 'Vergi Dairesi', 'Vergi No', 'KDV Türü', 'KDV Oranı (%)', 'Matrah (₺)', 'KDV Tutarı (₺)', 'Toplam (₺)', 'Sisteme Eklenme'];
   const items = document.querySelectorAll('.record-item');
   const rows = [header];
   items.forEach((item, i) => {
@@ -1346,11 +1362,12 @@ function getExportRows() {
     const fisNo   = allVals[2]?.textContent?.trim() || '';
     const vd      = allVals[3]?.textContent?.trim() || '';
     const vergiNo = allVals[4]?.textContent?.trim() || '';
-    const kdvO    = allVals[5]?.textContent?.trim() || '';
-    const mat     = allVals[6]?.textContent?.trim() || '';
-    const kdvT    = allVals[7]?.textContent?.trim() || '';
-    const top     = allVals[8]?.textContent?.trim() || '';
-    rows.push([String(i+1).padStart(2,'0'), firma, tarih, fisNo, vd, vergiNo, kdvO, mat, kdvT, top, dt]);
+    const kdvTur  = allVals[5]?.textContent?.trim() || '';
+    const kdvO    = allVals[6]?.textContent?.trim() || '';
+    const mat     = allVals[7]?.textContent?.trim() || '';
+    const kdvT    = allVals[8]?.textContent?.trim() || '';
+    const top     = allVals[9]?.textContent?.trim() || '';
+    rows.push([String(i+1).padStart(2,'0'), firma, tarih, fisNo, vd, vergiNo, kdvTur, kdvO, mat, kdvT, top, dt]);
   });
   return rows;
 }
@@ -1362,7 +1379,7 @@ function getFileName() {
 
 function exportXLSX() {
   const ws = XLSX.utils.aoa_to_sheet(getExportRows());
-  ws['!cols'] = [5, 28, 13, 14, 20, 14, 12, 15, 15, 15, 18].map(w => ({ wch: w }));
+  ws['!cols'] = [5, 28, 13, 14, 20, 14, 14, 12, 15, 15, 15, 18].map(w => ({ wch: w }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Faturalar');
   XLSX.writeFile(wb, getFileName() + '.xlsx');
