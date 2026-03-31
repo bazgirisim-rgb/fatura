@@ -834,12 +834,15 @@ async function processQueue() {
       // 5. localStorage'a kaydet
       const record = {
         id: 'r' + Date.now() + Math.floor(Math.random() * 10000),
-        firma:  parsed.firma,
-        tarih:  parsed.tarih,
-        kdvO:   parsed.kdvO,
-        mat:    parsed.mat,
-        kdvT:   parsed.kdvT,
-        top:    parsed.top,
+        firma:   parsed.firma,
+        tarih:   parsed.tarih,
+        kdvO:    parsed.kdvO,
+        mat:     parsed.mat,
+        kdvT:    parsed.kdvT,
+        top:     parsed.top,
+        vd:      parsed.vd,
+        vergiNo: parsed.vergiNo,
+        fisNo:   parsed.fisNo,
         savedAt: new Date().toISOString()
       };
       dbAdd(record);
@@ -978,7 +981,32 @@ function parseInvoice(raw) {
     mat = parseFloat((top - kdvT).toFixed(2));
   }
 
-  return { firma, tarih, kdvO, mat, kdvT, top };
+  // VERGİ DAİRESİ + VERGİ NO — aynı satırda "... VD 1234567890" formatı
+  let vd = '';
+  let vergiNo = '';
+  const vdMatch = raw.match(/([A-ZÇĞİÖŞÜa-zçğışöü\s]+)\s+V\.?\s*D\.?\s*[:\-]?\s*([0-9]{10,11})/i);
+  if (vdMatch) {
+    vd = vdMatch[1].trim();
+    vergiNo = vdMatch[2].trim();
+  } else {
+    // Ayrı satırlarda dene
+    const vdLine = raw.match(/V\.?\s*D\.?\s*[:\-]?\s*([A-ZÇĞİÖŞÜa-zçğışöü\s]{3,30})/i);
+    if (vdLine) vd = vdLine[1].trim();
+    const vnLine = raw.match(/(?:vergi\s*no|v\.?\s*n\.?|vkn)\s*[:\-]?\s*([0-9]{10,11})/i);
+    if (vnLine) vergiNo = vnLine[1].trim();
+    // Sadece 10-11 haneli sayı
+    if (!vergiNo) {
+      const nums = [...raw.matchAll(/(\d{10,11})/g)];
+      if (nums.length) vergiNo = nums[0][1];
+    }
+  }
+
+  // FİŞ NO — "Fiş No:", "Fis No:", "FİŞ NO" vb.
+  let fisNo = '';
+  const fisMatch = raw.match(/(?:fi[sş]\s*no|fatura\s*no|belge\s*no|f\.?\s*no)\s*[:\-#]?\s*([A-Z0-9\-]{3,20})/i);
+  if (fisMatch) fisNo = fisMatch[1].trim();
+
+  return { firma, tarih, kdvO, mat, kdvT, top, vd, vergiNo, fisNo };
 }
 
 function parseTRNum(s) {
@@ -1078,6 +1106,18 @@ function makeRecordEl(rec, num) {
       <div class="field">
         <div class="field-label">Tarih</div>
         <div class="field-val mono" contenteditable="true" onblur="saveField('${rec.id}','tarih',this)">${esc(rec.tarih || '')}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Fiş No</div>
+        <div class="field-val mono" contenteditable="true" onblur="saveField('${rec.id}','fisNo',this)">${esc(rec.fisNo || '')}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Vergi Dairesi</div>
+        <div class="field-val mono" contenteditable="true" onblur="saveField('${rec.id}','vd',this)">${esc(rec.vd || '')}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Vergi No</div>
+        <div class="field-val mono" contenteditable="true" onblur="saveField('${rec.id}','vergiNo',this)">${esc(rec.vergiNo || '')}</div>
       </div>
       <div class="field">
         <div class="field-label">KDV Oranı (%)</div>
@@ -1292,22 +1332,25 @@ function closeModal() {
 // EXPORT
 // ════════════════════════════════════════════════════
 function getExportRows() {
-  const header = ['#', 'Firma Adı', 'Fatura Tarihi', 'KDV Oranı (%)', 'Matrah (₺)', 'KDV Tutarı (₺)', 'Toplam (₺)', 'Sisteme Eklenme'];
+  const header = ['#', 'Firma Adı', 'Fatura Tarihi', 'Fiş No', 'Vergi Dairesi', 'Vergi No', 'KDV Oranı (%)', 'Matrah (₺)', 'KDV Tutarı (₺)', 'Toplam (₺)', 'Sisteme Eklenme'];
   const items = document.querySelectorAll('.record-item');
   const rows = [header];
   items.forEach((item, i) => {
-    const firma = (item.querySelector('.field-val:first-of-type')?.textContent || '').trim();
+    const id  = item.dataset.id;
+    const rec = dbLoad().find(r => r.id === id) || {};
+    const dt  = rec.savedAt ? new Date(rec.savedAt).toLocaleString('tr-TR') : '';
+    // DOM'dan oku (düzenlenmiş olabilir)
     const allVals = item.querySelectorAll('.field-val');
-    // firma=0, tarih=1, kdvO=2, mat=3, kdvT=4, top=5
-    const tarih = allVals[1]?.textContent?.trim() || '';
-    const kdvO  = allVals[2]?.textContent?.trim() || '';
-    const mat   = allVals[3]?.textContent?.trim() || '';
-    const kdvT  = allVals[4]?.textContent?.trim() || '';
-    const top   = allVals[5]?.textContent?.trim() || '';
-    const id    = item.dataset.id;
-    const rec   = dbLoad().find(r => r.id === id);
-    const dt    = rec?.savedAt ? new Date(rec.savedAt).toLocaleString('tr-TR') : '';
-    rows.push([String(i+1).padStart(2,'0'), firma, tarih, kdvO, mat, kdvT, top, dt]);
+    const firma   = allVals[0]?.textContent?.trim() || '';
+    const tarih   = allVals[1]?.textContent?.trim() || '';
+    const fisNo   = allVals[2]?.textContent?.trim() || '';
+    const vd      = allVals[3]?.textContent?.trim() || '';
+    const vergiNo = allVals[4]?.textContent?.trim() || '';
+    const kdvO    = allVals[5]?.textContent?.trim() || '';
+    const mat     = allVals[6]?.textContent?.trim() || '';
+    const kdvT    = allVals[7]?.textContent?.trim() || '';
+    const top     = allVals[8]?.textContent?.trim() || '';
+    rows.push([String(i+1).padStart(2,'0'), firma, tarih, fisNo, vd, vergiNo, kdvO, mat, kdvT, top, dt]);
   });
   return rows;
 }
@@ -1319,7 +1362,7 @@ function getFileName() {
 
 function exportXLSX() {
   const ws = XLSX.utils.aoa_to_sheet(getExportRows());
-  ws['!cols'] = [5, 32, 14, 12, 16, 16, 16, 18].map(w => ({ wch: w }));
+  ws['!cols'] = [5, 28, 13, 14, 20, 14, 12, 15, 15, 15, 18].map(w => ({ wch: w }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Faturalar');
   XLSX.writeFile(wb, getFileName() + '.xlsx');
