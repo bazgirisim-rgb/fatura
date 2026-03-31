@@ -1044,7 +1044,7 @@ function renderRecords() {
   }
 
   list.innerHTML = '';
-  records.forEach((rec, idx) => {
+  records.slice().reverse().forEach((rec, idx) => {
     list.appendChild(makeRecordEl(rec, idx + 1));
   });
 
