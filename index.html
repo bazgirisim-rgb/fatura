@@ -763,28 +763,17 @@ function setQProgress(id, pct) {
 // IMAGE PREPROCESSING
 // Telefon fotoğrafını küçültüp sıkıştırır → OCR hızlanır
 // ════════════════════════════════════════════════════
+// Dosyayı base64'e çevir — canvas kullanmadan, iOS uyumlu
 function preprocessImage(file) {
   return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      try {
-        let w = img.width, h = img.height;
-        const MAX = 1600;
-        if (w > h) { if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; } }
-        else       { if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; } }
-        const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-        URL.revokeObjectURL(url);
-        // base64 döndür — iOS Safari'de Blob+fetch yerine base64 çok daha güvenilir
-        const b64 = canvas.toDataURL('image/jpeg', 0.88).split(',')[1];
-        if (!b64) reject(new Error('Görsel işlenemedi'));
-        else resolve(b64);
-      } catch(e) { reject(e); }
+    const reader = new FileReader();
+    reader.onload = e => {
+      const b64 = e.target.result.split(',')[1];
+      if (!b64) reject(new Error('Dosya okunamadı'));
+      else resolve(b64);
     };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Görsel açılamadı')); };
-    img.src = url;
+    reader.onerror = () => reject(new Error('Dosya okunamadı'));
+    reader.readAsDataURL(file);
   });
 }
 
@@ -879,47 +868,46 @@ async function processQueue() {
 // ════════════════════════════════════════════════════
 // OCR.SPACE API
 // ════════════════════════════════════════════════════
-async function callOCRSpace(base64, filename, apiKey) {
-  // base64 + application/x-www-form-urlencoded → iOS Safari'de en güvenilir yöntem
-  const params = new URLSearchParams();
-  params.append('apikey', apiKey);
-  params.append('base64Image', 'data:image/jpeg;base64,' + base64);
-  params.append('language', 'tur');
-  params.append('isOverlayRequired', 'false');
-  params.append('detectOrientation', 'true');
-  params.append('scale', 'true');
-  params.append('OCREngine', '2');
+// OCR.space API — XMLHttpRequest ile gönder (iOS Safari fetch sorununu çözer)
+function callOCRSpace(base64, filename, apiKey) {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append('apikey', apiKey);
+    fd.append('base64Image', 'data:image/jpeg;base64,' + base64);
+    fd.append('language', 'tur');
+    fd.append('isOverlayRequired', 'false');
+    fd.append('detectOrientation', 'true');
+    fd.append('scale', 'true');
+    fd.append('OCREngine', '2');
 
-  const response = await fetch('https://api.ocr.space/parse/image', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: params.toString()
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', 'https://api.ocr.space/parse/image', true);
+    xhr.timeout = 60000; // 60 saniye timeout
+
+    xhr.onload = function() {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (data.IsErroredOnProcessing) {
+          const msg = (data.ErrorMessage || [])[0] || 'OCR hatası';
+          if (msg.toLowerCase().includes('apikey') || msg.toLowerCase().includes('invalid')) {
+            reject(new Error('API key geçersiz. Key Değiştir butonuna bas.')); return;
+          }
+          if (msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('quota')) {
+            reject(new Error('Günlük limit doldu (500/gün). Yarın tekrar deneyin.')); return;
+          }
+          reject(new Error('OCR: ' + msg)); return;
+        }
+        const text = (data.ParsedResults || [])[0]?.ParsedText || '';
+        if (!text.trim()) { reject(new Error('Metin okunamadı. Fotoğrafı düz ve net çekin.')); return; }
+        resolve(text);
+      } catch(e) { reject(new Error('Yanıt işlenemedi: ' + e.message)); }
+    };
+
+    xhr.onerror = function() { reject(new Error('Bağlantı hatası. İnternet bağlantınızı kontrol edin.')); };
+    xhr.ontimeout = function() { reject(new Error('Zaman aşımı. İnternet bağlantınızı kontrol edin.')); };
+
+    xhr.send(fd);
   });
-
-  if (!response.ok) {
-    throw new Error('Sunucu hatası: ' + response.status + '. İnternet bağlantınızı kontrol edin.');
-  }
-
-  const data = await response.json();
-
-  if (data.IsErroredOnProcessing) {
-    const msg = (data.ErrorMessage || [])[0] || 'OCR hatası';
-    if (msg.toLowerCase().includes('apikey') || msg.toLowerCase().includes('invalid')) {
-      throw new Error('API key geçersiz. Key değiştirip tekrar deneyin.');
-    }
-    if (msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('quota')) {
-      throw new Error('Günlük limit doldu (500/gün). Yarın tekrar deneyin.');
-    }
-    throw new Error('OCR hatası: ' + msg);
-  }
-
-  const text = (data.ParsedResults || [])[0]?.ParsedText || '';
-
-  if (!text.trim()) {
-    throw new Error('Metin okunamadı. Fotoğrafın net olduğundan emin olun.');
-  }
-
-  return text;
 }
 
 // ════════════════════════════════════════════════════
