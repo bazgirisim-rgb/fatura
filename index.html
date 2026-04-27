@@ -8,6 +8,7 @@
 <meta name="apple-mobile-web-app-title" content="BAZ Fatura">
 <title>BAZ Fatura Okuyucu</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://js.puter.com/v2/"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
@@ -445,57 +446,17 @@ html, body {
 </div>
 
 <!-- ═══════════════ SETUP SCREEN ═══════════════ -->
-<div id="screen-setup" class="screen active">
-  <div class="setup-hero">
-    <div class="icon">🧾</div>
-    <h1>Kurulum</h1>
-    <p>Claude AI API key'ini gir,<br>sonsuza kadar kullan.</p>
-  </div>
-
-  <div class="step-list">
-    <div class="step">
-      <div class="step-num">1</div>
-      <div class="step-content">
-        <div class="step-title">API Key Al</div>
-        <div class="step-desc">
-          <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com/settings/keys</a>
-          adresine git. "Create Key" butonuna bas.
-          <b>sk-ant-...</b> ile başlayan key'i kopyala.
-        </div>
-      </div>
-    </div>
-    <div class="step">
-      <div class="step-num">2</div>
-      <div class="step-content">
-        <div class="step-title">Key'i Yapıştır</div>
-        <div class="step-desc">
-          Kopyaladığın key'i aşağıya yapıştır ve "Başla" butonuna bas.
-          Bu işlemi bir kez yaparsın, key tarayıcıya kaydolur.
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="key-input-wrap">
-    <input type="text" id="key-field"
-      placeholder="sk-ant-api03-..."
-      autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-  </div>
-  <button id="btn-start" onclick="startApp()">Başla →</button>
-  <div id="setup-error"></div>
+<div id="screen-setup" class="screen">
 </div>
 
 <!-- ═══════════════ MAIN SCREEN ═══════════════ -->
-<div id="screen-main" class="screen">
+<div id="screen-main" class="screen active">
 
   <!-- UPLOAD -->
   <div class="card">
     <div class="card-head">
       <span class="card-title">Fatura / Fiş Ekle</span>
-      <div style="display:flex;align-items:center;gap:8px">
-        <span id="usage-lbl" style="font-family:var(--mono);font-size:10px;color:var(--gray2)"></span>
-        <button class="btn-key" onclick="changeKey()">API Key</button>
-      </div>
+      <span id="usage-lbl" style="font-family:var(--mono);font-size:10px;color:var(--gray2)"></span>
     </div>
     <div class="upload-body">
       <div class="upload-btns">
@@ -616,8 +577,8 @@ function dbUpdate(id, fields) {
 }
 function dbDelete(id) { dbSave(dbLoad().filter(r => r.id !== id)); }
 
-function getKey() { return localStorage.getItem(KEY_STORE) || ''; }
-function setKey(k) { localStorage.setItem(KEY_STORE, k); }
+function getKey() { return 'puter'; }
+function setKey(k) {}
 
 function todayStr() { return new Date().toISOString().slice(0,10); }
 function getUsage() { return parseInt(localStorage.getItem(USAGE_STORE + todayStr()) || '0'); }
@@ -635,11 +596,8 @@ let isProcessing = false;
 // INIT
 // ════════════════════════════════════════════════════
 (function init() {
-  const key = getKey();
-  if (key) {
-    document.getElementById('key-field').value = key;
-    showMain();
-  }
+  showMain();
+  // File inputs
   // File inputs
   document.getElementById('input-gallery').addEventListener('change', e => {
     addFilesToQueue([...e.target.files]);
@@ -654,28 +612,7 @@ let isProcessing = false;
 // ════════════════════════════════════════════════════
 // SETUP
 // ════════════════════════════════════════════════════
-function startApp() {
-  const key = document.getElementById('key-field').value.trim();
-  const errEl = document.getElementById('setup-error');
-  errEl.style.display = 'none';
 
-  if (!key) {
-    showSetupError('API key boş. Lütfen yukarıdaki adımları takip edin.');
-    return;
-  }
-  if (!key.startsWith('sk-ant') || key.length < 20) {
-    showSetupError('Geçersiz key formatı. Key "sk-ant-" ile başlamalı.');
-    return;
-  }
-  setKey(key);
-  showMain();
-}
-
-function showSetupError(msg) {
-  const el = document.getElementById('setup-error');
-  el.textContent = '⚠ ' + msg;
-  el.style.display = 'block';
-}
 
 function showMain() {
   document.getElementById('screen-setup').classList.remove('active');
@@ -686,12 +623,6 @@ function showMain() {
   updateTotalPill();
 }
 
-function changeKey() {
-  document.getElementById('screen-main').classList.remove('active');
-  document.getElementById('screen-setup').classList.add('active');
-  document.getElementById('key-field').value = getKey();
-  document.getElementById('setup-error').style.display = 'none';
-}
 
 // ════════════════════════════════════════════════════
 // QUEUE
@@ -763,27 +694,16 @@ function setQProgress(id, pct) {
 // IMAGE PREPROCESSING
 // Telefon fotoğrafını küçültüp sıkıştırır → OCR hızlanır
 // ════════════════════════════════════════════════════
-// Dosyayı base64'e çevir — iOS uyumlu
+// Dosyayı oku — iOS uyumlu
 function preprocessImage(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = e => {
-      const b64 = e.target.result.split(',')[1];
-      if (!b64) reject(new Error('Dosya okunamadı'));
-      else resolve({ b64, mime: file.type || 'image/jpeg' });
-    };
-    reader.onerror = () => reject(new Error('Dosya okunamadı'));
-    reader.readAsDataURL(file);
-  });
+  // Puter.js direkt File objesi kabul ediyor, hazırlık gerekmez
+  return Promise.resolve(file);
 }
 
 // ════════════════════════════════════════════════════
 // PROCESS QUEUE
 // ════════════════════════════════════════════════════
 async function processQueue() {
-  const key = getKey();
-  if (!key) { showToast('API key bulunamadı.', 'err'); return; }
-
   const pending = fileQueue.filter(i => i.status === 'pending');
   if (!pending.length) { showToast('İşlenecek dosya yok.', 'info'); return; }
 
@@ -803,12 +723,12 @@ async function processQueue() {
 
     try {
       // 1. Görseli küçült
-      const { b64, mime } = await preprocessImage(item.file);
+      const file = await preprocessImage(item.file);
       setQProgress(item.id, 30);
-      setStatus(true, `${item.name} — AI ile okunuyor…`, Math.round((doneCount / pending.length) * 100));
+      setStatus(true, `${item.name} — okunuyor…`, Math.round((doneCount / pending.length) * 100));
 
-      // 2. Claude API'ye gönder
-      const rawText = await callClaudeOCR(b64, mime, key);
+      // 2. Puter.js OCR ile oku
+      const rawText = await callPuterOCR(file);
       setQProgress(item.id, 80);
 
       // 3. Ham metni göster
@@ -868,24 +788,72 @@ async function processQueue() {
 // ════════════════════════════════════════════════════
 // OCR.SPACE API
 // ════════════════════════════════════════════════════
-// Claude API ile fatura OCR — Türkiye'de çalışır, iOS uyumlu
-async function callClaudeOCR(base64, mimeType, apiKey) {
-  const body = JSON.stringify({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1024,
-    system: `Sen bir Türkçe fatura ve yazar kasa fişi okuma uzmanısın. 
-Verilen görselden şu bilgileri çıkar ve SADECE JSON formatında yanıt ver, başka hiçbir şey yazma:
+// Puter.js OCR — tamamen ücretsiz, API key gerekmez
+async function callPuterOCR(file) {
+  try {
+    const result = await puter.ai.txt2speech; // warm up
+  } catch(e) {}
+  
+  // Puter vision ile görüntüyü oku
+  const response = await puter.ai.chat(
+    [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'image_url',
+            image_url: { url: await fileToDataURL(file) }
+          },
+          {
+            type: 'text',
+            text: `Bu Türkçe fatura veya yazar kasa fişinden şu bilgileri çıkar ve SADECE JSON döndür:
 {
   "firma_adi": "faturayı kesen firmanın tam adı",
   "tarih": "GG.AA.YYYY",
   "fis_no": "fiş veya fatura numarası",
-  "vergi_dairesi": "vergi dairesi adı (VD öncesi)",
+  "vergi_dairesi": "vergi dairesi adı",
   "vergi_no": "10 veya 11 haneli vergi numarası",
-  "kdv_tur": "ürün kategorisi (YİYECEK, TEMİZLİK, vb.)",
-  "kdv_orani": "KDV yüzdesi rakam olarak, örn: 20",
-  "matrah": "KDV hariç tutar, sadece rakam örn: 1666.67",
-  "kdv_tutari": "KDV tutarı, sadece rakam örn: 333.33",
-  "toplam": "genel toplam, sadece rakam örn: 2000.00"
+  "kdv_tur": "ürün kategorisi (YİYECEK, TEMİZLİK vb.)",
+  "kdv_orani": "KDV yüzdesi sadece rakam örn: 20",
+  "matrah": "KDV hariç tutar sadece rakam örn: 1666.67",
+  "kdv_tutari": "KDV tutarı sadece rakam örn: 333.33",
+  "toplam": "genel toplam sadece rakam örn: 2000.00"
+}
+Bulamazsan boş string bırak.`
+          }
+        ]
+      }
+    ]
+  );
+
+  const raw = response?.message?.content?.[0]?.text || response?.toString() || '';
+  const clean = raw.replace(/\`\`\`json|\`\`\`/g, '').trim();
+
+  try {
+    const p = JSON.parse(clean);
+    return [
+      p.firma_adi || '',
+      'Tarih: ' + (p.tarih || ''),
+      'Fiş No: ' + (p.fis_no || ''),
+      (p.vergi_dairesi || '') + ' VD ' + (p.vergi_no || ''),
+      p.kdv_tur || '',
+      'KDV %' + (p.kdv_orani || ''),
+      'MATRAH ' + (p.matrah || ''),
+      'TOPKDV ' + (p.kdv_tutari || ''),
+      'TOPLAM ' + (p.toplam || '')
+    ].join('\n');
+  } catch(e) {
+    return raw;
+  }
+}
+
+function fileToDataURL(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => res(e.target.result);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
 }
 Bulamazsan boş string bırak. Yıldız (*) işaretleri negatif değil formatlama içindir.`,
     messages: [{
