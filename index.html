@@ -770,20 +770,17 @@ function preprocessImage(file) {
     img.onload = () => {
       try {
         let w = img.width, h = img.height;
-        const MAX = 1600; // px — OCR.space için ideal boyut
+        const MAX = 1600;
         if (w > h) { if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; } }
         else       { if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; } }
-
         const canvas = document.createElement('canvas');
         canvas.width = w; canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
         URL.revokeObjectURL(url);
-
-        canvas.toBlob(blob => {
-          if (!blob) reject(new Error('Görsel işlenemedi'));
-          else resolve(blob);
-        }, 'image/jpeg', 0.88);
+        // base64 döndür — iOS Safari'de Blob+fetch yerine base64 çok daha güvenilir
+        const b64 = canvas.toDataURL('image/jpeg', 0.88).split(',')[1];
+        if (!b64) reject(new Error('Görsel işlenemedi'));
+        else resolve(b64);
       } catch(e) { reject(e); }
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Görsel açılamadı')); };
@@ -817,12 +814,12 @@ async function processQueue() {
 
     try {
       // 1. Görseli küçült
-      const blob = await preprocessImage(item.file);
+      const base64 = await preprocessImage(item.file);
       setQProgress(item.id, 30);
       setStatus(true, `${item.name} — OCR yapılıyor…`, Math.round((doneCount / pending.length) * 100));
 
       // 2. OCR.space'e gönder
-      const rawText = await callOCRSpace(blob, item.name, key);
+      const rawText = await callOCRSpace(base64, item.name, key);
       setQProgress(item.id, 80);
 
       // 3. Ham metni göster
@@ -882,19 +879,21 @@ async function processQueue() {
 // ════════════════════════════════════════════════════
 // OCR.SPACE API
 // ════════════════════════════════════════════════════
-async function callOCRSpace(blob, filename, apiKey) {
-  const fd = new FormData();
-  fd.append('apikey', apiKey);
-  fd.append('file', blob, filename || 'fatura.jpg');
-  fd.append('language', 'tur');          // Türkçe
-  fd.append('isOverlayRequired', 'false');
-  fd.append('detectOrientation', 'true'); // Eğik fotoğraf düzelt
-  fd.append('scale', 'true');
-  fd.append('OCREngine', '2');            // Engine 2: daha doğru
+async function callOCRSpace(base64, filename, apiKey) {
+  // base64 + application/x-www-form-urlencoded → iOS Safari'de en güvenilir yöntem
+  const params = new URLSearchParams();
+  params.append('apikey', apiKey);
+  params.append('base64Image', 'data:image/jpeg;base64,' + base64);
+  params.append('language', 'tur');
+  params.append('isOverlayRequired', 'false');
+  params.append('detectOrientation', 'true');
+  params.append('scale', 'true');
+  params.append('OCREngine', '2');
 
   const response = await fetch('https://api.ocr.space/parse/image', {
     method: 'POST',
-    body: fd
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString()
   });
 
   if (!response.ok) {
