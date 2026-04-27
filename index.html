@@ -449,18 +449,18 @@ html, body {
   <div class="setup-hero">
     <div class="icon">🧾</div>
     <h1>Kurulum</h1>
-    <p>Bir kez API key tanımla,<br>sonra sonsuza kadar kullan.</p>
+    <p>Claude AI API key'ini gir,<br>sonsuza kadar kullan.</p>
   </div>
 
   <div class="step-list">
     <div class="step">
       <div class="step-num">1</div>
       <div class="step-content">
-        <div class="step-title">Ücretsiz API Key Al</div>
+        <div class="step-title">API Key Al</div>
         <div class="step-desc">
-          <a href="https://ocr.space/ocrapi/freekey" target="_blank">ocr.space/ocrapi/freekey</a>
-          adresine git. Email adresini gir, "Get API Key" butonuna bas.
-          Email'ine <b>K81...</b> ile başlayan bir key gelecek. Kopyala.
+          <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com/settings/keys</a>
+          adresine git. "Create Key" butonuna bas.
+          <b>sk-ant-...</b> ile başlayan key'i kopyala.
         </div>
       </div>
     </div>
@@ -469,7 +469,7 @@ html, body {
       <div class="step-content">
         <div class="step-title">Key'i Yapıştır</div>
         <div class="step-desc">
-          Gelen key'i aşağıya yapıştır ve "Başla" butonuna bas.
+          Kopyaladığın key'i aşağıya yapıştır ve "Başla" butonuna bas.
           Bu işlemi bir kez yaparsın, key tarayıcıya kaydolur.
         </div>
       </div>
@@ -478,7 +478,7 @@ html, body {
 
   <div class="key-input-wrap">
     <input type="text" id="key-field"
-      placeholder="K81xxxxxxxxxxxxxxxxxxxxxxxxx"
+      placeholder="sk-ant-api03-..."
       autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
   </div>
   <button id="btn-start" onclick="startApp()">Başla →</button>
@@ -494,7 +494,7 @@ html, body {
       <span class="card-title">Fatura / Fiş Ekle</span>
       <div style="display:flex;align-items:center;gap:8px">
         <span id="usage-lbl" style="font-family:var(--mono);font-size:10px;color:var(--gray2)"></span>
-        <button class="btn-key" onclick="changeKey()">Key Değiştir</button>
+        <button class="btn-key" onclick="changeKey()">API Key</button>
       </div>
     </div>
     <div class="upload-body">
@@ -663,8 +663,8 @@ function startApp() {
     showSetupError('API key boş. Lütfen yukarıdaki adımları takip edin.');
     return;
   }
-  if (!key.startsWith('K') || key.length < 10) {
-    showSetupError('Geçersiz key formatı. Key "K" harfiyle başlamalı ve en az 10 karakter olmalı.');
+  if (!key.startsWith('sk-ant') || key.length < 20) {
+    showSetupError('Geçersiz key formatı. Key "sk-ant-" ile başlamalı.');
     return;
   }
   setKey(key);
@@ -763,14 +763,14 @@ function setQProgress(id, pct) {
 // IMAGE PREPROCESSING
 // Telefon fotoğrafını küçültüp sıkıştırır → OCR hızlanır
 // ════════════════════════════════════════════════════
-// Dosyayı base64'e çevir — canvas kullanmadan, iOS uyumlu
+// Dosyayı base64'e çevir — iOS uyumlu
 function preprocessImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = e => {
       const b64 = e.target.result.split(',')[1];
       if (!b64) reject(new Error('Dosya okunamadı'));
-      else resolve(b64);
+      else resolve({ b64, mime: file.type || 'image/jpeg' });
     };
     reader.onerror = () => reject(new Error('Dosya okunamadı'));
     reader.readAsDataURL(file);
@@ -803,12 +803,12 @@ async function processQueue() {
 
     try {
       // 1. Görseli küçült
-      const base64 = await preprocessImage(item.file);
+      const { b64, mime } = await preprocessImage(item.file);
       setQProgress(item.id, 30);
-      setStatus(true, `${item.name} — OCR yapılıyor…`, Math.round((doneCount / pending.length) * 100));
+      setStatus(true, `${item.name} — AI ile okunuyor…`, Math.round((doneCount / pending.length) * 100));
 
-      // 2. OCR.space'e gönder
-      const rawText = await callOCRSpace(base64, item.name, key);
+      // 2. Claude API'ye gönder
+      const rawText = await callClaudeOCR(b64, mime, key);
       setQProgress(item.id, 80);
 
       // 3. Ham metni göster
@@ -868,46 +868,76 @@ async function processQueue() {
 // ════════════════════════════════════════════════════
 // OCR.SPACE API
 // ════════════════════════════════════════════════════
-// OCR.space API — XMLHttpRequest ile gönder (iOS Safari fetch sorununu çözer)
-function callOCRSpace(base64, filename, apiKey) {
-  return new Promise((resolve, reject) => {
-    const fd = new FormData();
-    fd.append('apikey', apiKey);
-    fd.append('base64Image', 'data:image/jpeg;base64,' + base64);
-    fd.append('language', 'tur');
-    fd.append('isOverlayRequired', 'false');
-    fd.append('detectOrientation', 'true');
-    fd.append('scale', 'true');
-    fd.append('OCREngine', '2');
-
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', 'https://api.ocr.space/parse/image', true);
-    xhr.timeout = 60000; // 60 saniye timeout
-
-    xhr.onload = function() {
-      try {
-        const data = JSON.parse(xhr.responseText);
-        if (data.IsErroredOnProcessing) {
-          const msg = (data.ErrorMessage || [])[0] || 'OCR hatası';
-          if (msg.toLowerCase().includes('apikey') || msg.toLowerCase().includes('invalid')) {
-            reject(new Error('API key geçersiz. Key Değiştir butonuna bas.')); return;
-          }
-          if (msg.toLowerCase().includes('limit') || msg.toLowerCase().includes('quota')) {
-            reject(new Error('Günlük limit doldu (500/gün). Yarın tekrar deneyin.')); return;
-          }
-          reject(new Error('OCR: ' + msg)); return;
-        }
-        const text = (data.ParsedResults || [])[0]?.ParsedText || '';
-        if (!text.trim()) { reject(new Error('Metin okunamadı. Fotoğrafı düz ve net çekin.')); return; }
-        resolve(text);
-      } catch(e) { reject(new Error('Yanıt işlenemedi: ' + e.message)); }
-    };
-
-    xhr.onerror = function() { reject(new Error('Bağlantı hatası. İnternet bağlantınızı kontrol edin.')); };
-    xhr.ontimeout = function() { reject(new Error('Zaman aşımı. İnternet bağlantınızı kontrol edin.')); };
-
-    xhr.send(fd);
+// Claude API ile fatura OCR — Türkiye'de çalışır, iOS uyumlu
+async function callClaudeOCR(base64, mimeType, apiKey) {
+  const body = JSON.stringify({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 1024,
+    system: `Sen bir Türkçe fatura ve yazar kasa fişi okuma uzmanısın. 
+Verilen görselden şu bilgileri çıkar ve SADECE JSON formatında yanıt ver, başka hiçbir şey yazma:
+{
+  "firma_adi": "faturayı kesen firmanın tam adı",
+  "tarih": "GG.AA.YYYY",
+  "fis_no": "fiş veya fatura numarası",
+  "vergi_dairesi": "vergi dairesi adı (VD öncesi)",
+  "vergi_no": "10 veya 11 haneli vergi numarası",
+  "kdv_tur": "ürün kategorisi (YİYECEK, TEMİZLİK, vb.)",
+  "kdv_orani": "KDV yüzdesi rakam olarak, örn: 20",
+  "matrah": "KDV hariç tutar, sadece rakam örn: 1666.67",
+  "kdv_tutari": "KDV tutarı, sadece rakam örn: 333.33",
+  "toplam": "genel toplam, sadece rakam örn: 2000.00"
+}
+Bulamazsan boş string bırak. Yıldız (*) işaretleri negatif değil formatlama içindir.`,
+    messages: [{
+      role: 'user',
+      content: [{
+        type: 'image',
+        source: { type: 'base64', media_type: mimeType, data: base64 }
+      }, {
+        type: 'text',
+        text: 'Bu fatura/fişi oku.'
+      }]
+    }]
   });
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true'
+    },
+    body
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({}));
+    if (response.status === 401) throw new Error('API key geçersiz. Key Değiştir butonuna bas.');
+    throw new Error('Bağlantı hatası: ' + (err?.error?.message || response.status));
+  }
+
+  const data = await response.json();
+  const raw = data.content?.[0]?.text || '';
+  const clean = raw.replace(/```json|```/g, '').trim();
+
+  try {
+    const parsed = JSON.parse(clean);
+    // JSON'dan düz metin formatına çevir (parse fonksiyonu için)
+    return [
+      parsed.firma_adi || '',
+      'Tarih: ' + (parsed.tarih || ''),
+      'Fiş No: ' + (parsed.fis_no || ''),
+      (parsed.vergi_dairesi || '') + ' VD ' + (parsed.vergi_no || ''),
+      parsed.kdv_tur || '',
+      'KDV %' + (parsed.kdv_orani || ''),
+      'MATRAH ' + (parsed.matrah || ''),
+      'TOPKDV ' + (parsed.kdv_tutari || ''),
+      'TOPLAM ' + (parsed.toplam || '')
+    ].join('\n');
+  } catch(e) {
+    return raw; // JSON parse edilemezse raw text döndür
+  }
 }
 
 // ════════════════════════════════════════════════════
@@ -1410,8 +1440,8 @@ function toggleRaw() {
 function updateUsageLabel() {
   const u = getUsage();
   const el = document.getElementById('usage-lbl');
-  el.textContent = u + '/500 bugün';
-  el.style.color = u > 400 ? 'var(--red)' : u > 300 ? 'var(--gold)' : 'var(--gray2)';
+  el.textContent = u + ' fatura işlendi bugün';
+  el.style.color = 'var(--gray2)';
 }
 
 function showToast(msg, type) {
