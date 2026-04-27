@@ -629,7 +629,7 @@ function showMain() {
 // ════════════════════════════════════════════════════
 function addFilesToQueue(files) {
   files.forEach(file => {
-    if (!file.type.startsWith('image/')) return;
+    if (file.type && !file.type.startsWith('image/') && !file.type.startsWith('application/')) return; // iOS'ta type bazen boş gelir
     const id = Date.now() + Math.random();
     const item = { id, file, name: file.name, status: 'pending', thumb: null };
     fileQueue.push(item);
